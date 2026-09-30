@@ -26,6 +26,8 @@ audio-only files (WAV/MP3/M4A).
 
 - "Переозвучь это видео на русский / английский / ..." keeping the original background
 - Replace speech in a clip with the SAME voice speaking another language
+- Replace speech with a DIFFERENT provided voice — e.g. a native target-language
+  speaker sample (often sounds more natural than a cross-lingual clone)
 - Produce a voice-free background track (karaoke-style) from any recording
 - Don't use for: burned-in subtitles without audio replacement (use
   `translated-video-subtitles`), or simple transcription only (use `mlx-whisper`).
@@ -80,18 +82,29 @@ uv pip install --python .venv/bin/python \
    the SOURCE language: it must come back empty.
    Completion: `(other)` stem transcribes to nothing in the source language.
 
-4. **Build the cloning reference from the `(vocals)` stem** (never from the raw mix —
-   music bleed ruins the clone). Cut each speech segment with ~0.1 s padding,
-   concat in order, boost level, resample to 24 kHz mono:
+4. **Build the cloning reference.** Two options:
+   - **Clone the original speaker** — cut the reference from the `(vocals)` stem
+     (never from the raw mix — music bleed ruins the clone). Cut each speech
+     segment with ~0.1 s padding, concat in order, boost level, resample to
+     24 kHz mono. `ref_text` must be the EXACT transcript of the concatenated
+     segments, in the same order, in the SOURCE language. A wrong ref_text
+     silently degrades the clone.
+   - **Clone a provided voice sample** (often the better result): a 3-10 s
+     recording of a NATIVE speaker of the TARGET language gives more natural
+     prosody, rhythm and phonetics than a cross-lingual clone of the source
+     speaker. Transcribe the sample (forced language, word timestamps), cut a
+     clean 3-10 s span, resample to 24 kHz mono; `ref_text` = exact transcript
+     of that span in the TARGET language. Works for multiple voices in one
+     task: keep the same translations, re-synthesize per voice, deliver one
+     output file per voice.
    ```bash
+   # reference from the (vocals) stem:
    ffmpeg -y -v error -i "sep/full_audio_(vocals)_vocals_mel_band_roformer.wav" \
      -filter_complex "[0:a]atrim=START1:END1,asetpts=PTS-STARTPTS[s1];\
 [0:a]atrim=START2:END2,asetpts=PTS-STARTPTS[s2];\
 [s1][s2]concat=n=2:v=0:a=1,volume=2.0[out]" \
      -map "[out]" -ac 1 -ar 24000 ref.wav
    ```
-   `ref_text` must be the EXACT transcript of the concatenated segments, in the same
-   order, in the source language. A wrong ref_text silently degrades the clone.
    Completion: ref.wav is 3-10 s of clean speech; transcript verified against it.
 
 5. **Group segments into sentences, then translate.** Whisper segments are
@@ -133,7 +146,10 @@ areverse,silenceremove=start_periods=1:start_threshold=-50dB:start_silence=0.15,
      lineN_trim.wav
    ```
    `ffprobe` each trimmed file: lineN must fit its window from step 5. If not,
-   shorten the text and regenerate (do NOT time-stretch the voice).
+   shorten the text and regenerate (do NOT time-stretch the voice). Different
+   voices speak at different speeds: lines that fit with one cloned voice can
+   overflow with another — re-run the fit check for EVERY voice and shorten
+   per voice.
    Completion: all trimmed durations fit.
 
 8. **Mix background + cloned lines at the ORIGINAL timestamps.**
@@ -171,8 +187,10 @@ areverse,silenceremove=start_periods=1:start_threshold=-50dB:start_silence=0.15,
   audible holes in the music; the `(other)` stem keeps the background continuous.
 - **Language autodetect lies.** Two-pass STT (auto + forced), two models when
   unsure. A wrong language choice corrupts ref_text and the whole clone.
-- **Clone reference must come from the `(vocals)` stem**, cut tightly at STT
-  timestamps, with a transcript that matches word-for-word.
+- **Clone reference must be clean isolated speech**, cut tightly at STT
+  timestamps, with a transcript that matches word-for-word — either from the
+  `(vocals)` stem (original speaker) or from a user-provided sample (native
+  target-language voice, frequently the more natural-sounding choice).
 - **Dub sentences, not Whisper segments.** Segments are pause-based fragments;
   one TTS line per fragment produces gaps mid-thought and clipped phrase endings.
   Group segments into sentences before translating (step 5).
