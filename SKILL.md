@@ -94,9 +94,16 @@ uv pip install --python .venv/bin/python \
    order, in the source language. A wrong ref_text silently degrades the clone.
    Completion: ref.wav is 3-10 s of clean speech; transcript verified against it.
 
-5. **Translate the lines.** Each translated line must fit its time window: original
-   start → next speech start (or clip end). If a line is too long, shorten the
-   translation rather than overlapping the next line. Keep line count = source lines.
+5. **Group segments into sentences, then translate.** Whisper segments are
+   pause-based FRAGMENTS of sentences; dubbing each fragment as its own TTS line
+   leaves audible gaps in the middle of a thought and chops phrase endings (a
+   fragment can end on a stressed word). Merge consecutive segments into whole
+   sentences (group by ending punctuation `.?!`), then translate each sentence
+   as ONE line. A sentence's time window runs from its first segment's start to
+   the next sentence's start (or clip end) — these windows are large, so whole
+   sentences fit without time-stretching. If a line is too long, shorten the
+   translation rather than overlapping the next line. Keep line count = source
+   sentence count.
    Completion: every line's estimated duration fits its window.
 
 6. **Synthesize with the cloned voice.** Use `scripts/clone_tts.py` (one process,
@@ -114,11 +121,15 @@ uv pip install --python .venv/bin/python \
    (TypeError), the script retries without it.
    Completion: one wav per line at the model's sample rate (24 kHz).
 
-7. **Trim TTS edge silence and check fit.** TTS output has lead/tail padding:
+7. **Trim TTS edge silence and check fit.** TTS output has lead/tail padding.
+   Trim the START hard but the TAIL gently: a symmetric aggressive cut clips the
+   natural decay of the last word (vowel tails, breath) and phrases sound chopped
+   off. Cut the tail only after 150 ms below -50 dB and add a 60 ms fade-out
+   (fade-in between two areverse) so every line ends smoothly:
    ```bash
    ffmpeg -y -v error -i lineN.wav -af \
      "silenceremove=start_periods=1:start_threshold=-45dB:start_silence=0.05,\
-areverse,silenceremove=start_periods=1:start_threshold=-45dB:start_silence=0.05,areverse" \
+areverse,silenceremove=start_periods=1:start_threshold=-50dB:start_silence=0.15,afade=t=in:d=0.06,areverse" \
      lineN_trim.wav
    ```
    `ffprobe` each trimmed file: lineN must fit its window from step 5. If not,
@@ -162,6 +173,12 @@ areverse,silenceremove=start_periods=1:start_threshold=-45dB:start_silence=0.05,
   unsure. A wrong language choice corrupts ref_text and the whole clone.
 - **Clone reference must come from the `(vocals)` stem**, cut tightly at STT
   timestamps, with a transcript that matches word-for-word.
+- **Dub sentences, not Whisper segments.** Segments are pause-based fragments;
+  one TTS line per fragment produces gaps mid-thought and clipped phrase endings.
+  Group segments into sentences before translating (step 5).
+- **Hard tail trims clip word endings.** `silenceremove` at -45 dB/0.05 s on the
+  tail cuts the decay of the final syllable (observed: «...знаете что» lost the
+  final «о»). Use the gentle tail threshold + fade-out from step 7.
 - **Trim TTS silence before measuring fit**, and place lines by their trimmed start,
   not the raw file start.
 - **First run downloads several GB of models** (whisper ~1.5 GB, RoFormer ~0.2 GB,
