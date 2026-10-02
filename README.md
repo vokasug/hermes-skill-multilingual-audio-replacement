@@ -12,7 +12,7 @@
 
 ## Что умеет
 
-1. **Распознавание речи** с таймкодами слов и надёжным определением языка (двухпроходная схема: автоопределение + принудительный язык, кросс-проверка двумя моделями — автодетект Whisper способен уверенно ошибаться).
+1. **Распознавание речи** с таймкодами сегментов и надёжным определением языка (гейт языка: называемый источник или детект на 30 с, кросс-проверка второй моделью — автодетект Whisper способен уверенно ошибаться). STT целиком делегируется скиллу [mlx-whisper](https://github.com/vokasug/hermes-skill-mlx-whisper).
 2. **Интеллектуальное отделение голоса от фона** нейросетевой моделью источникового разделения: на выходе чистая фоновая дорожка и изолированный голос.
 3. **Клонирование голоса** по 3–10 секундам чистой речи — изолированного голоса оригинального диктора **или** образца голоса носителя целевого языка, предоставленного пользователем — и синтез произвольного текста на 10 языках (включая русский) этим голосом.
 4. **Сборку результата**: фоновая дорожка + синтезированные фразы на оригинальных позициях, с ограничителем громкости; видеопоток копируется без перекодирования.
@@ -23,7 +23,7 @@
 ```
 вход (видео/аудио)
    │
-   ├─► Whisper (MLX) ──► транскрипт + таймкоды фраз, определение языка
+   ├─► скилл mlx-whisper (Silero VAD + Whisper MLX) ──► сегменты JSON + таймкоды, язык
    │
    ├─► MelBand RoFormer ──► (vocals) голос  +  (other) чистый фон
    │         │
@@ -43,7 +43,7 @@
 
 | Компонент | Технология | Роль |
 |---|---|---|
-| STT | [mlx-whisper](https://github.com/ml-explore/mlx-examples) (Whisper large-v3-turbo на MLX) | транскрипт, таймкоды, язык |
+| STT | скилл [mlx-whisper](https://github.com/vokasug/hermes-skill-mlx-whisper) (Silero VAD + Whisper на MLX: podlodka-turbo q8 для ru, large-v3-turbo-8bit для остальных языков) | сегменты, таймкоды, язык |
 | Разделение источников | [audio-separator](https://github.com/nomadkaraoke/python-audio-separator), модель MelBand RoFormer (Kim) | голос ↔ фон |
 | TTS / клонирование | [mlx-audio](https://github.com/Blaizzy/mlx-audio) + [Qwen3-TTS-12Hz-1.7B-Base](https://github.com/QwenLM/Qwen3-TTS) (8-bit, MLX) | синтез клоном |
 | Сборка | ffmpeg | микс, муксинг, кодирование |
@@ -59,16 +59,28 @@
 
 ## Установка (с чистого Mac)
 
+### 1. Скилл mlx-whisper (STT)
+
+```bash
+git clone https://github.com/vokasug/hermes-skill-mlx-whisper ~/.hermes/skills/media/mlx-whisper
+```
+
+Затем выполните «Установка на чистый Mac» из README того репозитория: uv-инструмент `mlx-whisper`, модели (podlodka-turbo q8 для ru, large-v3-turbo-8bit для остальных языков), VAD-окружение.
+
+### 2. Системные инструменты и venv
+
 ```bash
 brew install ffmpeg uv
 
 uv venv --python 3.12 .venv
 uv pip install --python .venv/bin/python \
-    mlx-whisper mlx-audio soundfile \
+    mlx-audio soundfile \
     audio-separator onnxruntime audioread
 ```
 
-Модели (`mlx-community/whisper-large-v3-turbo`, `vocals_mel_band_roformer.ckpt`, `mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit`) скачиваются автоматически при первом использовании.
+Пакет `mlx-whisper` в этот venv ставить НЕ нужно — STT-шаги вызывают окружения скилла mlx-whisper.
+
+Модели `vocals_mel_band_roformer.ckpt` и `mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit` скачиваются автоматически при первом использовании (whisper-модели уже установлены на шаге 1).
 
 ## Структура
 
