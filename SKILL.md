@@ -1,7 +1,7 @@
 ---
 name: multilingual-audio-replacement
-description: Re-dub video/audio into another language via voice cloning.
-version: 1.0.0
+description: re-dub video/audio into another language by voice cloning
+version: 1.0.1
 author: vokasug, Hermes Agent
 license: MIT
 platforms: [macos]
